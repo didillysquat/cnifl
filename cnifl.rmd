@@ -1,0 +1,166 @@
+First plot to make is a plot of the number of reads we got out for each of the PCRs for each sample_origin read file
+```{R}
+library(ggplot2)
+library(stringr)
+library(seqinr)
+library(ShortRead)
+library(gridExtra)
+library(dplyr)
+library(RColorBrewer)
+```
+
+The directory where the insilico PCR fasta results are is /home/humebc/projects/cnifl/results/in_silico_pcr
+```{R}
+insilico_dir = "/home/humebc/projects/cnifl/results/in_silico_pcr"
+pcr_fasta_paths = as.character(sapply(list.dirs(insilico_dir)[-1], function(x){
+    file.path(x, paste0(str_split(x, "/")[[1]][[8]], ".pcr.minsize.fasta"))
+}))
+
+pcrs = unique(as.character(sapply(pcr_fasta_paths, function(x){
+    sample_origin_pcr = str_split(x, "/")[[1]][[8]]
+    pcr = paste(str_split(sample_origin_pcr, "_")[[1]][3:5], collapse="_")
+})))
+
+sample_origins = unique(as.character(sapply(pcr_fasta_paths, function(x){
+    sample_origin_pcr = str_split(x, "/")[[1]][[8]]
+    sample_origin = paste(str_split(sample_origin_pcr, "_")[[1]][1:2], collapse="_")
+})))
+
+# number of combinations of sample_origin and PCR
+df_size = length(pcrs) * length(sample_origins)
+sample_origin_v = vector(mode="character", length=df_size)
+pcr_v = vector(mode="character", length=df_size)
+read_count_v = vector(mode="integer", length=df_size)
+i = 1
+for (sample_origin in sample_origins){
+    for (pcr in pcrs){
+        # Check to see if the file exists
+        path_to_fasta = file.path(insilico_dir, paste(sample_origin, pcr, sep="_"), paste0(paste(sample_origin, pcr, sep="_"), ".pcr.minsize.fasta"))
+
+        if (file.exists(path_to_fasta)){
+            print(paste0("Reading: ", path_to_fasta))
+            read_count_v[i] =  length(read.fasta(file=path_to_fasta))
+            print("Done")
+        }else{
+            read_count_v[i] = 0
+        }
+        sample_origin_v[i] = sample_origin
+        pcr_v[i] = pcr
+        i = i + 1
+    }
+}
+read_count_df = data.frame("sample_origin"=sample_origin_v, "pcr"=pcr_v, "read_counts"=read_count_v)
+# Then we also want to have the total for each of the
+# sample_origins that we can get from /home/humebc/projects/cnifl/raw_seq_data/concatenated_files
+for (concat_fasta in list.files("/home/humebc/projects/cnifl/raw_seq_data/concatenated_files", pattern="fastq.gz", full.names=T)){
+    sample_origin = str_split(str_split(concat_fasta, "/")[[1]][[8]], "\\.")[[1]][[1]]
+    print(paste0("Reading in: ", concat_fasta))
+    new_row <- c(sample_origin, "total", length(readFastq(concat_fasta)))
+    print("done")
+    read_count_df <- rbind(read_count_df, new_row)
+}
+read_count_df$read_counts = as.numeric(read_count_df$read_counts)
+write.table(read_count_df, file="read_count_df.tsv", row.names=F)
+```
+
+Now make the grouped bar plot
+```{R}
+df_to_plot = read_count_df
+df_to_plot[df_to_plot == 0] <- NA
+no_log = ggplot(data=df_to_plot, aes(fill=pcr, y=read_counts, x=pcr)) + geom_bar(position="dodge", stat="identity", fill="black") + facet_wrap(~sample_origin) + theme(axis.text.x = element_text(angle = 90)) + ggtitle("in silico PCR reads (no log)")
+log = ggplot(data=df_to_plot, aes(fill=pcr, y=read_counts, x=pcr)) + geom_bar(position="dodge", stat="identity", fill="black") + facet_wrap(~sample_origin) + theme(axis.text.x = element_text(angle = 90)) + scale_y_continuous(trans='log10') + ggtitle("in silico PCR reads (log10)")
+combi = grid.arrange(no_log, log, ncol=2)
+ggsave("in_silico_read_counts.png", combi, width=20, height=10)
+```
+
+Next I want to add to the current figure by splitting up each of the bars so that they contain the proportion of different products that we have found in them
+I'm not sure if this will be possible but we'll give it a go.
+```{R}
+if (file.exists("df_for_plotting.tsv")){
+    df_for_plotting = read.table("df_for_plotting.tsv", head=T)
+}else{
+    read_count_df = read.table("/home/humebc/projects/cnifl/read_count_df.tsv", head=T)
+    read_count_df = read_count_df %>% rowwise() %>% mutate(origin = str_split(sample_origin, "_")[[1]][[2]])
+    # create a 
+    read_count_df = read_count_df %>% mutate(pcr_origin=paste(pcr, origin, sep="_"))
+    read_count_df = read_count_df %>% filter(pcr != "total")
+    read_count_totals = read_count_df %>% group_by(pcr_origin) %>% summarise(total_counts = sum(read_counts))
+    read_count_totals = read_count_totals %>% filter(total_counts != 0)
+
+    multi_sample_fasta_path = "/home/humebc/projects/cnifl/results/multi_sample_single_product_fastas"
+    fastas = list.files(multi_sample_fasta_path, full.names = T)
+    pcr_origin_v = vector(mode="character", length=length(fastas))
+    scaf_read_count_v = vector(mode="integer", length=length(fastas))
+    scaff_v = vector(mode="character", length=length(fastas))
+    i = 1
+    for (fasta in fastas){
+        pcr_origin_v[i] = str_replace(str_split(str_split(fasta, "/")[[1]][[8]], "\\.")[[1]][[1]], "_multiSample_fasta", "")
+        scaff_v[i] = str_split(str_split(fasta, "/")[[1]][[8]], "\\.")[[1]][[3]]
+        print(paste0("Reading: ", fasta))
+        scaf_read_count_v[i] =  length(read.fasta(file=fasta))
+        print("Done")
+        i = i + 1
+        print(paste0(i, " out of ", length(fastas)))
+    }
+    amplicon_count_df = data.frame(pcr_origin=pcr_origin_v, scaff=scaff_v, amplicon_read_count=scaf_read_count_v)
+    total_mapped_df = amplicon_count_df %>% group_by(pcr_origin) %>% summarise(total_mapped_reads=sum(amplicon_read_count))
+    # THe unmapped reads are then the subtraction of the read_count_totals df and the total_mapped_df
+    mapped_unmapped_df = merge(read_count_totals,total_mapped_df, by="pcr_origin")
+    mapped_unmapped_df = mapped_unmapped_df %>% mutate(unmapped=total_counts-total_mapped_reads, scaff="unmapped")
+    mapped_unmapped_df = mapped_unmapped_df %>% select(pcr_origin, scaff, unmapped) %>% rename(amplicon_read_count=unmapped)
+    # THen it just reminds to rbind this to the other dataframe
+    df_for_plotting = rbind(amplicon_count_df, mapped_unmapped_df)
+    write.table(df_for_plotting, file="df_for_plotting.tsv", row.names=F)
+}
+# Let's make a relative version of the data as well
+pcr_origin_totals_df = df_for_plotting %>% group_by(pcr_origin) %>% summarise(total_counts = sum(amplicon_read_count))
+df_for_plotting = merge(df_for_plotting, pcr_origin_totals_df, by="pcr_origin")
+df_for_plotting = df_for_plotting %>% mutate(relative_reads=amplicon_read_count/total_counts)
+df_for_plotting = df_for_plotting %>% mutate(scaff = as.factor(scaff))
+
+target_scaffs = c(
+    "cnifl_4936_1"="scaffold273",
+    "cnifl_6313_1" ="scaffold39",
+    "cnifl_6313_2" ="scaffold39",
+    "cnifl_6313_3" ="scaffold39",
+    "cnifl_11648_1"="scaffold30",
+    "cnifl_13073_1"="scaffold1",
+    "cnifl_15897_1"="scaffold337",
+    "cnifl_15897_2"="scaffold337",
+    "cnifl_15899_1"="scaffold337",
+    "cnifl_18899_1"="scaffold493",
+    "cnifl_18899_2"="scaffold493",
+    "cnifl_19581_1"="scaffold416",
+    "cnifl_27171_1"="scaffold279"
+)
+target_scaffs_df = data.frame(pcr=names(target_scaffs), target_scaff=target_scaffs)
+# THis is not so simple because some of the wrong products in other PCRs
+# map to the target scaffold of other products so we can't simply colour by the scaffold.
+# we will add a new column which is a copy of scaff but where the target scaffolds for a given
+# pcr are replaced with "target" and then we can add "target" as hot pink in the colour scale.
+
+# ADD PCR
+df_for_plotting = df_for_plotting %>% rowwise() %>% mutate(pcr = str_replace(str_replace(pcr_origin, "_gdna", ""), "_cdna", "")) %>% mutate(pcr = as.factor(pcr))
+
+# Add target scaff
+df_for_plotting = merge(df_for_plotting, target_scaffs_df, by="pcr")
+
+# scaff colour
+df_for_plotting = df_for_plotting %>% mutate(scaff_color=if_else(scaff==target_scaff, "target", as.character(scaff)))
+
+
+# I want to have the different scaffolds in different colours except for our target scaffs
+# which I will put in a sexy hot pink
+myColors <- brewer.pal(8,"Greys")
+myColors = rep(myColors, times=ceiling(length(unique(df_for_plotting$scaff_color))/8))
+myColors = myColors[1:length(unique(df_for_plotting$scaff_color))]
+names(myColors) = unique(df_for_plotting$scaff_color)
+myColors["target"] = "#ff007f"
+
+colScale <- scale_fill_manual(name = "scaff_color", values = myColors)
+
+no_log = ggplot(data=df_for_plotting, aes(fill=scaff_color, y=amplicon_read_count, x=pcr_origin)) + geom_bar(position="stack", stat="identity") + theme_bw() + theme(legend.position="none", axis.text.x = element_text(angle = 90)) + ggtitle("within-PCR amplicon diversity absolute") + colScale
+relative = ggplot(data=df_for_plotting, aes(fill=scaff_color, y=relative_reads, x=pcr_origin)) + geom_bar(position="stack", stat="identity") + theme_bw() + theme(legend.position="none", axis.text.x = element_text(angle = 90)) + ggtitle("within-PCR amplicon diversity relative") + colScale
+dual = grid.arrange(no_log, relative, ncol=2)
+ggsave("within_pcr_diversity.png", dual, width=10, height=10)
+```
