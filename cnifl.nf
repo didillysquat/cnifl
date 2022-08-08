@@ -24,6 +24,7 @@
 seq_ch = Channel.fromPath('/home/humebc/projects/cnifl/raw_seq_data/concatenated_files/*.fastq.gz').map{[it.getName().split("_")[0] + "_" + it.getName().split("_")[1].replaceAll(".fastq.gz", ""), it]}
 ref = file("/home/humebc/projects/cnifl/reference/ref")
 split_by_sam = file("/home/humebc/projects/cnifl/testing_med/sam.py")
+subsample = file("/home/humebc/projects/cnifl/testing_med/subsample.py")
 // individual_pcrs = Channel.from([["A_gdna", "cnifl_4936_1"], ["A_gdna", "cnifl_6313_1"], ["D_cdna", "cnifl_4936_1"]])
 // primers = Channel.from([[["TTCACTCCTGCTTGGTGTCC", "CGAGCCAACCCTCAATCTGT"], "cnifl_4936_1", "cnifl3"], [["CATATCTGTGCTCCCGGTCC", "AGGACTTGTGCTTACCGTGG"], "cnifl_6313_1", "cnifl9"]])
 // I have included a cutoff that we will use for the minimum size that is half of the product supposed size.
@@ -81,6 +82,8 @@ target_scaffold_map = Channel.from([
     ["cnifl_19581_1", "scaffold416"],
     ["cnifl_27171_1", "scaffold279"]
 ])
+
+// NB we did the initial QC of the short reads
 
 // get the unique and name pairs to run the PCRs on.
 // NB ignore the name :)
@@ -165,7 +168,7 @@ process mapPacBio{
     file ref
 
     output:
-    tuple val(pcr_origin), path("${pcr_origin}_multiSample_fasta.mapped.no.header.sam") into med_out_ch
+    tuple val(pcr_origin), path("${pcr_origin}_multiSample_fasta.mapped.no.header.sam") into med_out_ch, intersect_with_short_ch
 
     script:
     """
@@ -195,6 +198,28 @@ process split_by_mapping{
     """
 }
 
+// Some of the alignments have a large ammount of sequencs in them (i.e. 300 000) and this is causing alignment to be extremely slow, even with mafft
+// We don't need that many seuqneces in order to be able to accurately cout the haplotype so we will subsample this down to 5000 sequeneces per sample per alignment
+// and work with that. If there are less than 5000 samples then we will just take what we have
+// We'll do this in python rather than awk because it will be quicker for me to write
+// From this point on we are also only working with the target scaffold amplicon and we are not continuing with the rest
+process subsample{
+    tag "${pcr}_${origin}"
+    conda "python=3"
+
+    input:
+    tuple val(pcr), val(origin), path(fastas), val(target_scaffold) from split_alignments_out_ch.map{[it[0].replaceAll("_" + it[0].split("_").last(), ""), it[0].split("_").last(), it[1]]}.combine(target_scaffold_map, by:0)
+    file subsample
+
+    output:
+    tuple val(pcr), val(origin), val(target_scaffold), path("${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.subsampled.fasta") into subsample_out_ch
+
+    script:
+    """
+    python3 $subsample ${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.fasta
+    """
+}
+
 // Then need to align the mapped out fastas in preparation for analysis of the entropy
 // We will filter to only work with those 'target' products according to the target_scaffold_map
 // example of an input fasta cnifl_15899_1_gdna_multiSample_fasta.mapped.scaffold94.fasta
@@ -204,189 +229,32 @@ process align_mapped_out{
     publishDir "/home/humebc/projects/cnifl/results/aligned_multi_sample_single_product_fastas", mode: 'symlink'
 
     input:
-    tuple val(pcr), val(origin), path(fastas), val(target_scaffold) from split_alignments_out_ch.map{[it[0].replaceAll("_" + it[0].split("_").last(), ""), it[0].split("_").last(), it[1]]}.combine(target_scaffold_map, by:0)
+    tuple val(pcr), val(origin), val(target_scaffold), path(subbed_fasta) from subsample_out_ch
 
     output:
-    tuple val(pcr), val(origin), path("${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.aligned.fasta") into align_mapped_out_ch
+    tuple val(pcr), val(origin), path("${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.subsampled.aligned.fasta") into align_mapped_out_ch
 
     script:
     """
-    mafft ${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.fasta > ${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.aligned.fasta
+    mafft ${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.subsampled.fasta > ${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.subsampled.aligned.fasta
     """
 }
 
-// At this point we are ready to look at the entropy
-// It is perhaps good if we put this into a compound figure.
 
-// seq_ch = Channel.fromPath('/home/humebc/projects/cnifl/raw_seq_data/concatenated_files/*.fastq.gz').map{[it.getName().split("_")[0], it.getName().split("_")[1].replaceAll(".fastq.gz", ""), it]}
-// aipgene11648_ref = file("/home/humebc/projects/cnifl/reference/aipgene11648.fa")
-// aipgene13073_ref = file("/home/humebc/projects/cnifl/reference/aipgene13073.fa")
-// aipgene13580_ref = file("/home/humebc/projects/cnifl/reference/aipgene13580.fa")
-// aipgene15890_ref = file("/home/humebc/projects/cnifl/reference/aipgene15890.fa")
-// aipgene15897_ref = file("/home/humebc/projects/cnifl/reference/aipgene15897.fa")
-// aipgene15899_ref = file("/home/humebc/projects/cnifl/reference/aipgene15899.fa")
-// aipgene18899_ref = file("/home/humebc/projects/cnifl/reference/aipgene18899.fa")
-// aipgene19581_ref = file("/home/humebc/projects/cnifl/reference/aipgene19581.fa")
-// aipgene27171_ref = file("/home/humebc/projects/cnifl/reference/aipgene27171.fa")
-// aipgene27771_ref = file("/home/humebc/projects/cnifl/reference/aipgene27771.fa")
-// aipgene4936_ref = file("/home/humebc/projects/cnifl/reference/aipgene4936.fa")
-// aipgene6313_ref = file("/home/humebc/projects/cnifl/reference/aipgene6313.fa")
-// aipgene7322_ref = file("/home/humebc/projects/cnifl/reference/aipgene7322.fa")
-
-// ref_fa = file("/home/humebc/projects/cnifl/reference/mmseqs/ref.fa")
-
-// split_script = file("/home/humebc/projects/cnifl/bin/split_fasta_by_gene.py")
-
-
-
-// // porechop
-// process porechomp{
-//     tag "${sample} ${origin}"
-//     container "biocontainers/porechop:v0.2.4dfsg-1-deb_cv1"
-//     cpus 20
-
-//     input:
-//     tuple val(sample), val(origin), path(fastq) from seq_ch
-
-//     output:
-//     tuple val(sample), val(origin), path("${sample}_${origin}.chopped.fastq.gz") into pore_chop_out_ch
-
-//     script:
-//     """
-//     porechop -i $fastq -o ${sample}_${origin}.chopped.fastq.gz --threads ${task.cpus}
-//     """
-// }
-
-// // Once we have the reads clean we will want to map them against the reference 13 sequences
-// // We will try doing it with bbsplit 
-// // process bbsplit{
-// //     tag "${sample} ${origin}"
-// //     container "staphb/bbtools:latest"
-// //     cpus 10
-
-// //     input:
-// //     tuple val(sample), val(origin), path(fastq) from pore_chop_out_ch
-// //     file aipgene11648_ref
-// //     file aipgene13073_ref
-// //     file aipgene13580_ref
-// //     file aipgene15890_ref
-// //     file aipgene15897_ref
-// //     file aipgene15899_ref
-// //     file aipgene18899_ref
-// //     file aipgene19581_ref
-// //     file aipgene27171_ref
-// //     file aipgene27771_ref
-// //     file aipgene4936_ref 
-// //     file aipgene6313_ref 
-// //     file aipgene7322_ref 
-
-// //     output:
-// //     path("${sample}_${origin}_*") into bbsplit_out_ch
-
-// //     script:
-// //     """
-// //     bbsplit.sh -Xmx800g build=1 threads=${task.cpus} in1=$fastq \
-// //     ref_aipgene11648=$aipgene11648_ref \
-// //     ref_aipgene13073=$aipgene13073_ref \
-// //     ref_aipgene13580=$aipgene13580_ref \
-// //     ref_aipgene15890=$aipgene15890_ref \
-// //     ref_aipgene15897=$aipgene15897_ref \
-// //     ref_aipgene15899=$aipgene15899_ref \
-// //     ref_aipgene18899=$aipgene18899_ref \
-// //     ref_aipgene19581=$aipgene19581_ref \
-// //     ref_aipgene27171=$aipgene27171_ref \
-// //     ref_aipgene27771=$aipgene27771_ref \
-// //     ref_aipgene4936=$aipgene4936_ref \
-// //     ref_aipgene6313=$aipgene6313_ref \
-// //     ref_aipgene7322=$aipgene7322_ref \
-// //     out_aipgene11648=${sample}_${origin}_aipgene11648.fq.gz \
-// //     out_aipgene13073=${sample}_${origin}_aipgene13073.fq.gz \
-// //     out_aipgene13580=${sample}_${origin}_aipgene13580.fq.gz \
-// //     out_aipgene15890=${sample}_${origin}_aipgene15890.fq.gz \
-// //     out_aipgene15897=${sample}_${origin}_aipgene15897.fq.gz \
-// //     out_aipgene15899=${sample}_${origin}_aipgene15899.fq.gz \
-// //     out_aipgene18899=${sample}_${origin}_aipgene18899.fq.gz \
-// //     out_aipgene19581=${sample}_${origin}_aipgene19581.fq.gz \
-// //     out_aipgene27171=${sample}_${origin}_aipgene27171.fq.gz \
-// //     out_aipgene27771=${sample}_${origin}_aipgene27771.fq.gz \
-// //     out_aipgene4936=${sample}_${origin}_aipgene4936.fq.gz \
-// //     out_aipgene6313=${sample}_${origin}_aipgene6313.fq.gz \
-// //     out_aipgene7322=${sample}_${origin}_aipgene7322.fq.gz \
-// //     outu=${sample}.unmapped.fq.gz
-// //     """
-// // }
-
-// process mmseqs{
-//     tag "${sample} ${origin}"
-//     container "soedinglab/mmseqs2:latest"
-//     cpus 10
-
-//     input:
-//     tuple val(sample), val(origin), path(fastq) from pore_chop_out_ch
-//     file ref_fa
-
-//     output:
-//     tuple val(sample), val(origin), path("${sample}_${origin}_alnResult.m8"), path(fastq) into mmseqs_out_ch
-
-//     script:
-//     """
-//     mmseqs easy-search $fastq $ref_fa  ${sample}_${origin}_alnResult.m8 tmp --search-type 3
-//     """
-// }
-
-// process split_fastq_using_mmseqs_matches{
-//     tag "${sample} ${origin}"
-//     conda "python3 conda-forge::biopython conda-forge::gzip"
-
-//     input:
-//     tuple val(sample), val(origin), path(mmseqs_alignment), path(fastq) from mmseqs_out_ch
-//     file split_script
-
-//     output:
-//     path("*fa.gz") into split_fastq_out
-
-//     script:
-//     """
-//     python3 $split_script $mmseqs_alignment $fastq $sample $origin
-//     """
-// }
-
-// // Convert the fastq to fasta and modify the header line so that it includes the sample name and a count
-// // process fastq_to_fasta{
-// //     tag "${unique_name}"
-// //     container 'biocontainers/seqtk:v1.3-1-deb_cv1'
-
-// //     input:
-// //     tuple val(sample), val(origin), val(gene), file(fastq) from bbsplit_out_ch.collect().map{[it.getName().replaceAll("fastq.gz", "").split("_")[0], it.getName().replaceAll("fastq.gz", "").split("_")[1], it.getName().replaceAll("fastq.gz", "").split("_")[2], it]}
-
-// //     output:
-// //     tuple val("${origin}_${gene}"), file("${sample}_${origin}_${gene}.sample_headers.fa.gz") into fastq_to_fasta_out_ch
-
-// //     script:
-// //     """
-// //     seqtk seq -A $fastq | awk 'BEGIN{count=0} {if(\$0 ~ />/){print ">${sample}_" count; count = count + 1} else{print \$0}}' - | gzip > ${sample}_${origin}_${gene}.sample_headers.fa.gz
-// //     """
-// // }
-
-// // // Then group the fasta files by gene origin combinations i.e. so that we have collections of 4 fasta files that are the four samples
-// // // And create a single fasta from these
-// // // Then use this as input to med.
-// // process med{
-// //     tag "${origin_gene}"
-// //     container "meren/oligotyping:latest"
-// //     publishDir "results/med/${origin_gene}", mode: 'symlink'
-
-// //     input:
-// //     tuple val(origin_gene), file(fastas) from fastq_to_fasta_out_ch.groupTuple()
-
-// //     output:
-// //     file("*") into med_out_ch
-
-// //     script:
-// //     """
-
-// //     """
-
-
-// // }
-// // fastq_to_fasta_out_ch.groupTuple()
+// TODO we want to investigate whether the short reads support the sequence diversity we are seeing in the long reads.
+// To do this, we will aim to do two sets of intersects using BED tools so that we only end up with the short reads
+// that cover the regions of the long reads that we are interested in.
+// The first intersect will be the long reads with the mapped reference CDSs.
+// Once we have done this first set of interects I want to check that we only have one amplicon
+// i.e. 1 loci per long read PCR, else something unexpected is happening.
+// From here, if all is good and there is only one loci, then we can do an intersect
+// of the short reads with the reference-intersected long reads. We have a large number
+// of short read sequences, that we should split up into cDNA and gDNA, but other than that
+// we don't know which cnifls or samples the short reads refer to so we will do a pairwise
+// intersect where we map all short read reads to all long read reads.
+// This will end up with a whole load of short reads bams per long read bam so we will then need to 
+// merge the short read bams. In this way we should end up with one long read and possibly an associated short read.
+// We can then look at these in a fasta to see if the diversity is supported or something similar.
+process intersetc_long_ref{
+    
+}
