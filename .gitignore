@@ -2,3 +2,9 @@ work
 short_read_nextflow/work/
 testing_med/
 .next*
+chache
+results
+reference
+*.png
+cache
+raw_seq_data/

@@ -23,6 +23,8 @@
 
 seq_ch = Channel.fromPath('/home/humebc/projects/cnifl/raw_seq_data/concatenated_files/*.fastq.gz').map{[it.getName().split("_")[0] + "_" + it.getName().split("_")[1].replaceAll(".fastq.gz", ""), it]}
 ref = file("/home/humebc/projects/cnifl/reference/ref")
+ref_bam = file("/home/humebc/projects/cnifl/reference/aip.ficolin.cds.sorted.bam")
+ref_bai = file("/home/humebc/projects/cnifl/reference/aip.ficolin.cds.sorted.bam.bai")
 split_by_sam = file("/home/humebc/projects/cnifl/testing_med/sam.py")
 subsample = file("/home/humebc/projects/cnifl/testing_med/subsample.py")
 // individual_pcrs = Channel.from([["A_gdna", "cnifl_4936_1"], ["A_gdna", "cnifl_6313_1"], ["D_cdna", "cnifl_4936_1"]])
@@ -81,6 +83,39 @@ target_scaffold_map = Channel.from([
     ["cnifl_18899_2", "scaffold493"],
     ["cnifl_19581_1", "scaffold416"],
     ["cnifl_27171_1", "scaffold279"]
+])
+
+// A map to let us identify which scaffold the amplicon we were aiming for is from
+// and I have also included the bp range of where the reference CDS maps. I did this by opening
+// up the reference mapped CDS file in py sam and looking at the reference_start and reference_ed
+target_scaffold_map_full_name = Channel.from([
+    [ "cnifl_4936_1_cdna" , "LJWW01000272.1 Exaiptasia pallida isolate CC7 scaffold273, whole genome shotgun sequence:128264-130134"],
+    [ "cnifl_6313_1_cdna" , "LJWW01000039.1 Exaiptasia pallida isolate CC7 scaffold39, whole genome shotgun sequence:327291-329484"],
+    [ "cnifl_6313_2_cdna" , "LJWW01000039.1 Exaiptasia pallida isolate CC7 scaffold39, whole genome shotgun sequence:327291-329484"],
+    [ "cnifl_6313_3_cdna" , "LJWW01000039.1 Exaiptasia pallida isolate CC7 scaffold39, whole genome shotgun sequence:327291-329484"],
+    ["cnifl_11648_1_cdna", "LJWW01000030.1 Exaiptasia pallida isolate CC7 scaffold30, whole genome shotgun sequence:61078-62941"],
+    ["cnifl_13073_1_cdna", "LJWW01000001.1 Exaiptasia pallida isolate CC7 scaffold1, whole genome shotgun sequence:182325-184457"],
+    ["cnifl_15897_1_cdna", "LJWW01000336.1 Exaiptasia pallida isolate CC7 scaffold337, whole genome shotgun sequence:35544-37588"],
+    ["cnifl_15897_2_cdna", "LJWW01000336.1 Exaiptasia pallida isolate CC7 scaffold337, whole genome shotgun sequence:35544-37588"],
+    ["cnifl_15899_1_cdna", "LJWW01000336.1 Exaiptasia pallida isolate CC7 scaffold337, whole genome shotgun sequence:213282-214977"],
+    ["cnifl_18899_1_cdna", "LJWW01000492.1 Exaiptasia pallida isolate CC7 scaffold493, whole genome shotgun sequence:54787-56966"],
+    ["cnifl_18899_2_cdna", "LJWW01000492.1 Exaiptasia pallida isolate CC7 scaffold493, whole genome shotgun sequence:54787-56966"],
+    ["cnifl_19581_1_cdna", "LJWW01000415.1 Exaiptasia pallida isolate CC7 scaffold416, whole genome shotgun sequence:151158-153256"],
+    ["cnifl_27171_1_cdna", "LJWW01000278.1 Exaiptasia pallida isolate CC7 scaffold279, whole genome shotgun sequence:166092-168459"],
+
+    [ "cnifl_4936_1_gdna" , "LJWW01000272.1 Exaiptasia pallida isolate CC7 scaffold273, whole genome shotgun sequence:128264-130134"],
+    [ "cnifl_6313_1_gdna" , "LJWW01000039.1 Exaiptasia pallida isolate CC7 scaffold39, whole genome shotgun sequence:327291-329484"],
+    [ "cnifl_6313_2_gdna" , "LJWW01000039.1 Exaiptasia pallida isolate CC7 scaffold39, whole genome shotgun sequence:327291-329484"],
+    [ "cnifl_6313_3_gdna" , "LJWW01000039.1 Exaiptasia pallida isolate CC7 scaffold39, whole genome shotgun sequence:327291-329484"],
+    ["cnifl_11648_1_gdna", "LJWW01000030.1 Exaiptasia pallida isolate CC7 scaffold30, whole genome shotgun sequence:61078-62941"],
+    ["cnifl_13073_1_gdna", "LJWW01000001.1 Exaiptasia pallida isolate CC7 scaffold1, whole genome shotgun sequence:182325-184457"],
+    ["cnifl_15897_1_gdna", "LJWW01000336.1 Exaiptasia pallida isolate CC7 scaffold337, whole genome shotgun sequence:35544-37588"],
+    ["cnifl_15897_2_gdna", "LJWW01000336.1 Exaiptasia pallida isolate CC7 scaffold337, whole genome shotgun sequence:35544-37588"],
+    ["cnifl_15899_1_gdna", "LJWW01000336.1 Exaiptasia pallida isolate CC7 scaffold337, whole genome shotgun sequence:213282-214977"],
+    ["cnifl_18899_1_gdna", "LJWW01000492.1 Exaiptasia pallida isolate CC7 scaffold493, whole genome shotgun sequence:54787-56966"],
+    ["cnifl_18899_2_gdna", "LJWW01000492.1 Exaiptasia pallida isolate CC7 scaffold493, whole genome shotgun sequence:54787-56966"],
+    ["cnifl_19581_1_gdna", "LJWW01000415.1 Exaiptasia pallida isolate CC7 scaffold416, whole genome shotgun sequence:151158-153256"],
+    ["cnifl_27171_1_gdna", "LJWW01000278.1 Exaiptasia pallida isolate CC7 scaffold279, whole genome shotgun sequence:166092-168459"]
 ])
 
 // NB we did the initial QC of the short reads
@@ -153,7 +188,7 @@ process modify_header{
     """
 }
 
-modify_header_out_ch.map{[it[0] + "_" + it[1].split("_")[1], it[2]]}.groupTuple().set{map_out_multiple_products_ch_in}
+modify_header_out_ch.map{[it[0] + "_" + it[1].split("_")[1], it[2]]}.groupTuple().into{map_out_multiple_products_ch_in; mpac_bio_bam}
 // modify_header_out_ch.map{[it[0] + "_" + it[1].split("_")[1], it[2]]}.groupTuple().view()
 
 //group by pcr_origin so that we have all the fastqs for a given pcr_origin
@@ -161,6 +196,7 @@ modify_header_out_ch.map{[it[0] + "_" + it[1].split("_")[1], it[2]]}.groupTuple(
 process mapPacBio{
     tag "${pcr_origin}"
     container "staphb/bbtools:latest"
+    publishDir "/home/humebc/projects/cnifl/results/multi_sample_multi_product_sams", mode: 'symlink'
     cpus 50
 
     input:
@@ -168,7 +204,7 @@ process mapPacBio{
     file ref
 
     output:
-    tuple val(pcr_origin), path("${pcr_origin}_multiSample_fasta.mapped.no.header.sam") into med_out_ch, intersect_with_short_ch
+    tuple val(pcr_origin), path("${pcr_origin}_multiSample_fasta.mapped.no.header.sam") into med_out_ch
 
     script:
     """
@@ -232,7 +268,7 @@ process align_mapped_out{
     tuple val(pcr), val(origin), val(target_scaffold), path(subbed_fasta) from subsample_out_ch
 
     output:
-    tuple val(pcr), val(origin), path("${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.subsampled.aligned.fasta") into align_mapped_out_ch
+    tuple val(pcr), val(origin), path("${pcr}_${origin}_multiSample_fasta.mapped.${target_scaffold}.subsampled.aligned.fasta") into align_mapped_out_ch, long_aligned_out
 
     script:
     """
@@ -240,14 +276,57 @@ process align_mapped_out{
     """
 }
 
+raw_seqs = Channel.fromFilePairs("/home/humebc/projects/cnifl/raw_seq_data/short_read_data/*{R1,R2}*.fastq.gz")
 
-// TODO we want to investigate whether the short reads support the sequence diversity we are seeing in the long reads.
+// Clean adapters from the short read input seqs
+process fastp{
+    tag "${sample}"
+    conda "fastp"
+
+    input:
+    tuple val(sample), path(reads) from raw_seqs
+
+    output:
+    file "*.html" into fastp_out_no_dedup_ch
+    tuple val(sample), file("${sample}_1.clean.fq.gz"), file("${sample}_2.clean.fq.gz") into fastp_out_ch
+
+    script:
+    """
+    fastp -q 20 -i ${reads[0]} -I ${reads[1]} -o ${sample}_1.clean.fq.gz -O ${sample}_2.clean.fq.gz
+    """
+}
+
+// Map the short reads to the aiptasia genome
+process bbmap{
+    tag "${sample}"
+    container "staphb/bbtools:latest"
+    publishDir "/home/humebc/projects/cnifl/results/short_read_mapped", mode: 'symlink'
+    cpus 50
+
+    input:
+    tuple val(sample), file(fwd), file(rev) from fastp_out_ch
+    file ref
+
+    output:
+    tuple val(sample), path("${sample}.mapped.sorted.bam"), path("${sample}.mapped.sorted.bam.bai") into bbmap_out
+
+    script:
+    """
+    bbmap.sh in1=$fwd in2=$rev outm=${sample}.mapped.bam build=1 threads=${task.cpus}
+    samtools view -h ${sample}.mapped.bam | awk -F'\\t' 'substr(\$0,1,1)=="@" || (\$9>= 1 && \$9<=500) || (\$9<=-1 && \$9>=-500)' | samtools view -b -f2 > ${sample}.mapped.filtered.bam
+    samtools sort ${sample}.mapped.filtered.bam > ${sample}.mapped.sorted.bam
+    samtools index ${sample}.mapped.sorted.bam
+    rm ${sample}.mapped.bam ${sample}.mapped.filtered.bam
+    """
+}
+
+// We want to investigate whether the short reads support the sequence diversity we are seeing in the long reads.
 // To do this, we will aim to do two sets of intersects using BED tools so that we only end up with the short reads
 // that cover the regions of the long reads that we are interested in.
 // The first intersect will be the long reads with the mapped reference CDSs.
 // Once we have done this first set of interects I want to check that we only have one amplicon
-// i.e. 1 loci per long read PCR, else something unexpected is happening.
-// From here, if all is good and there is only one loci, then we can do an intersect
+// i.e. 1 loci per long read PCR, else something unexpected is happening. ( I checked and we have multiple amplicons so we have to filter as done below)
+// From here, we can do an intersect
 // of the short reads with the reference-intersected long reads. We have a large number
 // of short read sequences, that we should split up into cDNA and gDNA, but other than that
 // we don't know which cnifls or samples the short reads refer to so we will do a pairwise
@@ -255,6 +334,216 @@ process align_mapped_out{
 // This will end up with a whole load of short reads bams per long read bam so we will then need to 
 // merge the short read bams. In this way we should end up with one long read and possibly an associated short read.
 // We can then look at these in a fasta to see if the diversity is supported or something similar.
-process intersetc_long_ref{
-    
+
+// Remap the long reads this time into bam format with headers and sort and index
+process mapPacBio_long_bam{
+    tag "${pcr_origin}"
+    container "staphb/bbtools:latest"
+    publishDir "/home/humebc/projects/cnifl/results/long_reads_mapped_to_ref", mode: 'symlink'
+    cpus 50
+
+    input:
+    tuple val(pcr_origin), path(fatas) from mpac_bio_bam
+    file ref
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}_multiSample_fasta.mapped.sorted.bam"), path("${pcr_origin}_multiSample_fasta.mapped.sorted.bam.bai") into intersect_long_ref_ch
+
+    script:
+    """
+    cat *.fasta > ${pcr_origin}_multiSample_fasta.fasta
+    mapPacBio.sh in=${pcr_origin}_multiSample_fasta.fasta out=${pcr_origin}_multiSample_fasta.mapped.bam build=1 threads=${task.cpus} nodisk
+    samtools sort ${pcr_origin}_multiSample_fasta.mapped.bam > ${pcr_origin}_multiSample_fasta.mapped.sorted.bam
+    samtools index ${pcr_origin}_multiSample_fasta.mapped.sorted.bam
+    rm ${pcr_origin}_multiSample_fasta.mapped.bam
+    rm ${pcr_origin}_multiSample_fasta.fasta
+    """
+}
+
+
+// Intersect the long read mapped reads with the reference cds reads that have also been mapped
+process intersect_long_ref{
+    tag "${pcr_origin}"
+    container "didillysquat/bedtools_samtools"
+    publishDir "/home/humebc/projects/cnifl/results/long_intersect_ref", mode: 'symlink'
+    cpus 50
+
+    input:
+    tuple val(pcr_origin), path(long_bam), path(long_bai) from intersect_long_ref_ch
+    file ref_bam
+    file ref_bai
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}.longMappedToRef.sorted.bam"), path("${pcr_origin}.longMappedToRef.sorted.bam.bai") into intersect_long_ref_out_ch
+
+    script:
+    """
+    bedtools intersect -a $long_bam -b $ref_bam  > ${pcr_origin}.longMappedToRef.bam
+    samtools sort ${pcr_origin}.longMappedToRef.bam > ${pcr_origin}.longMappedToRef.sorted.bam
+    samtools index ${pcr_origin}.longMappedToRef.sorted.bam
+    """
+}
+
+// Here we should check that there is only one amplicon in each of the bam files. Perhaps we can check this in python with pysam.
+// We have looked and this assumption holds true for some of the samples but not for others.
+// So we will once again have to extract out the scaffold and therefore amplicons that we are interested/targeted in each of the bams
+// before these bams will be a suitable template for running the intersect with the short read seqs.
+process filter_by_target_scaff{
+    container "didillysquat/bedtools_samtools"
+    tag "${pcr_origin}"
+    publishDir "/home/humebc/projects/cnifl/results/long_intersect_ref_filtered", mode: 'symlink'
+    cpus 50
+
+    input:
+    tuple val(pcr_origin), path(bam), path(bai), val(target_coords) from intersect_long_ref_out_ch.combine(target_scaffold_map_full_name, by: 0)
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}.longMappedToRef.filteredToTarget.sorted.bam"), path("${pcr_origin}.longMappedToRef.filteredToTarget.sorted.bam.bai") into filter_by_target_scaff_out_ch, merge_with_short_bam_in_ch, merge_with_short_bam_subsample_in_ch
+
+    script:
+    """
+    samtools view -hb ${pcr_origin}.longMappedToRef.sorted.bam \"$target_coords\" > ${pcr_origin}.longMappedToRef.filteredToTarget.bam
+    samtools sort ${pcr_origin}.longMappedToRef.filteredToTarget.bam > ${pcr_origin}.longMappedToRef.filteredToTarget.sorted.bam
+    samtools index ${pcr_origin}.longMappedToRef.filteredToTarget.sorted.bam
+    rm ${pcr_origin}.longMappedToRef.filteredToTarget.bam
+    """
+}
+
+// Finally we want to intersect the short read sequences with these filtered long read bams.
+// We will interesect each short read bam file with each long read bam file.
+// Then we will need to merge all of the short read bams that are associated to a given long read bam.
+// These files are then what we will want to analyses by simply looking at them in the alignment viewer.
+
+// split the cdna short read samples into cdna and gdna channels
+bbmap_out.map{
+    if (it[0].contains("gDNA")){
+        ["gdna", it[0], it[1], it[2]]
+    }else if (it[0].contains("cDNA")){
+        ["cdna", it[0], it[1], it[2]]
+    }
+}.branch {
+        short_cdna: it[0] == "cdna"
+        short_gdna: it[0] == "gdna"
+    }.set { short_result }
+
+
+// Do the same for the long reads
+filter_by_target_scaff_out_ch.map{
+    if (it[0].contains("gdna")){
+        ["gdna", it[0], it[1], it[2]]
+    }else if (it[0].contains("cdna")){
+        ["cdna", it[0], it[1], it[2]]
+    }
+}.branch{
+    long_cdna: it[0] == "cdna"
+    long_gdna: it[0] == "gdna"
+}.set {long_result}
+
+// Intersect the short reads with the long reads.
+process intersect_short_long{
+    tag "${pcr_origin}_${sample}"
+    container "didillysquat/bedtools_samtools"
+    publishDir "/home/humebc/projects/cnifl/results/short_intersect_long_individual", mode: 'symlink'
+    cpus 1
+
+    input:
+    tuple val(origin), val(pcr_origin), path(filtered_long_bam), path(filtered_long_bai), val(origin), val(sample), path(short_bam), path(short_bai) from long_result.long_cdna.combine(short_result.short_cdna).mix(long_result.long_gdna.combine(short_result.short_gdna))
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}.${sample}.short_intersect_long.sorted.bam"), path("${pcr_origin}.${sample}.short_intersect_long.sorted.bam.bai") into intersect_short_long_out_ch
+
+    script:
+    """
+    bedtools intersect -a $short_bam -b $filtered_long_bam  > ${pcr_origin}.${sample}.short_intersect_long.bam
+    samtools sort ${pcr_origin}.${sample}.short_intersect_long.bam > ${pcr_origin}.${sample}.short_intersect_long.sorted.bam
+    samtools index ${pcr_origin}.${sample}.short_intersect_long.sorted.bam
+    rm ${pcr_origin}.${sample}.short_intersect_long.bam
+    """
+}
+
+// Finally we want to merge all of the individual short intersect long bams by pcr_origin
+// There will be some empty bams so we will screen for these at the input by requiring > 100kb in size for the bam.
+process merge_short_intersect_long{
+    tag "${pcr_origin}"
+    container "didillysquat/bedtools_samtools"
+    publishDir "/home/humebc/projects/cnifl/results/short_intersect_long_merged", mode: 'symlink'
+    cpus 1
+
+    input:
+    tuple val(pcr_origin), path(bams), path(bais) from intersect_short_long_out_ch.filter{it[1].size() > 100000}.groupTuple()
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}.short_intersect_long.merged.sorted.bam"), path("${pcr_origin}.short_intersect_long.merged.sorted.bam.bai") into merge_short_intersect_long_out_ch, merge_short_intersect_long_subsample_out_ch
+
+    script:
+    """
+    samtools merge -o ${pcr_origin}.short_intersect_long.merged.bam *.bam
+    samtools sort ${pcr_origin}.short_intersect_long.merged.bam > ${pcr_origin}.short_intersect_long.merged.sorted.bam
+    samtools index ${pcr_origin}.short_intersect_long.merged.sorted.bam
+    rm ${pcr_origin}.short_intersect_long.merged.bam
+    """
+}
+
+
+// rather than work with fasta
+// lets try to stay in the bam format so that we are relative to the reference.
+// let's merge the short reads with the corresponding long reads and look at them in IGV.
+process merge_long_and_short_bams{
+    tag "${pcr_origin}"
+    container "didillysquat/bedtools_samtools"
+    publishDir "/home/humebc/projects/cnifl/results/short_and_long_merged_by_pcr_origin_bams", mode: 'symlink'
+    cpus 1
+
+    input:
+    tuple val(pcr_origin), path(short_bam), path(short_bai), path(long_bam), path(long_bai) from merge_short_intersect_long_out_ch.combine(merge_with_short_bam_in_ch, by:0)
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}.short_and_long_reads.sorted.bam"), path("${pcr_origin}.short_and_long_reads.sorted.bam.bai") into merge_long_and_short_bams_ch
+
+    script:
+    """
+    samtools merge -o ${pcr_origin}.short_and_long_reads.bam $short_bam $long_bam
+    samtools sort ${pcr_origin}.short_and_long_reads.bam > ${pcr_origin}.short_and_long_reads.sorted.bam
+    samtools index ${pcr_origin}.short_and_long_reads.sorted.bam
+    rm ${pcr_origin}.short_and_long_reads.bam
+    """
+}
+
+// The problem is that we want to be able to visualize some long and some short in the same alignment.
+// to acheive that I want to subsample both of the bams before merging them.
+process merge_long_and_short_bams_subsample{
+    tag "${pcr_origin}"
+    container "didillysquat/bedtools_samtools"
+    publishDir "/home/humebc/projects/cnifl/results/subsampled_short_and_long_merged_by_pcr_origin_bams", mode: 'symlink'
+    cpus 1
+
+    input:
+    tuple val(pcr_origin), path(short_bam), path(short_bai), path(long_bam), path(long_bai) from merge_short_intersect_long_subsample_out_ch.combine(merge_with_short_bam_subsample_in_ch, by:0)
+
+    output:
+    tuple val(pcr_origin), path("${pcr_origin}.short_and_long_reads.subsampled.sorted.bam"), path("${pcr_origin}.short_and_long_reads.subsampled.sorted.bam.bai") into merge_long_and_short_bams_subsample_ch
+
+    script:
+    """
+    # Make the 100 subsampled shorts
+    samtools view -H $short_bam > short.headers.sam
+    samtools view $short_bam | shuf | head -n 400 > short.reads.sam
+    cat short.headers.sam short.reads.sam > short.subsampled.sam
+    samtools view -bh short.subsampled.sam > short.subsampled.bam
+    samtools sort short.subsampled.bam > short.subsampled.sorted.bam
+    samtools index short.subsampled.sorted.bam
+
+    # Make the 100 subsampled longs
+    samtools view -H $long_bam > long.headers.sam
+    samtools view $long_bam | shuf | head -n 100 > long.reads.sam
+    cat long.headers.sam long.reads.sam > long.subsampled.sam
+    samtools view -bh long.subsampled.sam > long.subsampled.bam
+    samtools sort long.subsampled.bam > long.subsampled.sorted.bam
+    samtools index long.subsampled.sorted.bam
+
+    # Finally do the merge of the short and long subsampled reads
+    samtools merge -o ${pcr_origin}.short_and_long_reads.subsampled.bam short.subsampled.sorted.bam long.subsampled.sorted.bam
+    samtools sort ${pcr_origin}.short_and_long_reads.subsampled.bam > ${pcr_origin}.short_and_long_reads.subsampled.sorted.bam
+    samtools index ${pcr_origin}.short_and_long_reads.subsampled.sorted.bam
+    """
 }

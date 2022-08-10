@@ -148,6 +148,10 @@ df_for_plotting = merge(df_for_plotting, target_scaffs_df, by="pcr")
 # scaff colour
 df_for_plotting = df_for_plotting %>% mutate(scaff_color=if_else(scaff==target_scaff, "target", as.character(scaff)))
 
+# TODO we now know that the 'other' target amplicons are sometimes amplified in the PCRs
+# so rather than just colouring the target pink, it would be good to give each of the different targets different colours (we'd need to take the 
+# exact bp coordinates into range though which is tricky.)
+# this way we could look at each stack and see that other amplicons were amplifed in that PCR.
 
 # I want to have the different scaffolds in different colours except for our target scaffs
 # which I will put in a sexy hot pink
