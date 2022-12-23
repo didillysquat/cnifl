@@ -121,7 +121,7 @@ target_scaffold_map_full_name = Channel.from([
 // NB we did the initial QC of the short reads
 
 // get the unique and name pairs to run the PCRs on.
-// NB ignore the name :)
+
 // Turns out that uniqueing the long reads is almost pointless because of the higher error rate so I won't bother.
 // Plus it is breaking the pipeline because sometimes names files aren't produced.
 process mothur_fastq_to_fasta{
@@ -143,6 +143,7 @@ process mothur_fastq_to_fasta{
     """
 }
 
+// Here we run a each PCR on each 
 process mothur_in_silico_pcr_for_real{
     tag "${sample_origin}_${pcr_name}"
     container "didillysquat/mothur:latest"
